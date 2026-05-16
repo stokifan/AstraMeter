@@ -2,6 +2,7 @@
 
 ## Next
 
+- **Fixed** Home Assistant sensors falsely reported as stale when their value doesn't change for a while (e.g. solar production on an unloaded phase, or at night) ([#363](https://github.com/tomquist/astrameter/issues/363)).
 
 ## 2.0.0
 
