@@ -70,6 +70,12 @@ class Consumer:
     # Report data (updated each UDP request)
     phase: str = "A"
     power: int = 0
+    # Net AC power we expect this consumer to be at after applying the
+    # last instruction (its reported output plus the per-phase delta we
+    # delivered).  Negative = charging, positive = discharging.  Used to
+    # populate cross-talk *_dchrg / *_chrg fields in responses to other
+    # batteries — see _collect_reports_by_phase.
+    last_instructed_power: float = 0.0
     timestamp: float = 0.0
     device_type: str = ""
     poll_interval: float | None = None
@@ -390,7 +396,14 @@ class CT002:
             phase = consumer.phase.upper()
             if phase not in by_phase:
                 phase = "A"
-            power = consumer.power
+            # Use the net AC power we *instructed* this consumer to be at
+            # (its reported output plus the delta in the last response),
+            # not what it physically reported.  A battery passing PV
+            # through to AC at 100% SoC reports positive power even
+            # though we told it to charge; reporting the instructed net
+            # power keeps the cross-talk dchrg signal free of those
+            # involuntary outputs (issue #376).
+            power = round(consumer.last_instructed_power)
             if power == 0:
                 continue
             by_phase[phase]["active"] = True
@@ -652,6 +665,25 @@ class CT002:
         if self.active_control and not in_inspection_mode:
             values = self._compute_smooth_target(values, consumer_id)
         values = ([*list(values), 0, 0, 0])[:3]
+
+        # Record the *net* power we expect this battery to be at after
+        # applying the instruction (its reported output plus the delta we
+        # deliver — the battery's firmware computes
+        # ``new_target = current_power + grid_reading_field``).  The
+        # cross-talk *_chrg_power / *_dchrg_power fields convey net power
+        # per phase so other batteries can see who is actively
+        # charging/discharging cells; storing only the delta would lose
+        # the steady-state signal and flip signs on small corrections.
+        # Skip during inspection mode: there is no instruction to record
+        # (we send raw meter readings as information, not a target; the
+        # battery is running its phase-discovery routine, not our
+        # integral controller), and we don't even know which phase to
+        # credit since ``consumer.phase`` defaults to "A" until the
+        # battery declares its real phase.  See issue #376.
+        if not in_inspection_mode:
+            consumer = self._get_consumer(consumer_id)
+            phase_idx = {"A": 0, "B": 1, "C": 2}.get(consumer.phase.upper(), 0)
+            consumer.last_instructed_power = float(reported_power + values[phase_idx])
 
         try:
             response_fields = self._build_response_fields(fields, values)
