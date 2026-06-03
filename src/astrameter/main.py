@@ -71,11 +71,16 @@ async def read_ct_powermeter(
                 "serving last known value",
                 type(powermeter).__name__,
             )
-    values = await powermeter.get_powermeter_watts()
-    value1 = values[0] if len(values) > 0 else 0
-    value2 = values[1] if len(values) > 1 else 0
-    value3 = values[2] if len(values) > 2 else 0
-    return [value1, value2, value3]
+    try:
+        values = await powermeter.get_powermeter_watts()
+        value1 = values[0] if len(values) > 0 else 0
+        value2 = values[1] if len(values) > 1 else 0
+        value3 = values[2] if len(values) > 2 else 0
+        return [value1, value2, value3]
+    except Exception as e:
+       logger.info("Could not get CT values:"+str(e))
+       return None
+
 
 
 async def test_powermeter(powermeter: Powermeter, client_filter: ClientFilter):
